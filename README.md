@@ -1,27 +1,57 @@
-# Airbnb Host Dynamics Analysis
+# 🏘️ Airbnb Host Dynamics in London  
+**Maksimilian Štajer – Individual Integrative Assignment (IIA)**  
 
-**Author:** Maksimilian Štajer  
+[![SQLite](https://img.shields.io/badge/DB-SQLite-003B57?logo=sqlite&logoColor=white)](https://www.sqlite.org/) 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+> A data-driven exploration of how **single-listing** and **multi-listing** hosts shape the Airbnb market in London (2008 – 2023) – covering data cleaning, pseudonymisation, relational modelling, SQL analytics, and business insights.
+
+---
+
+## Table of Contents
+1. [Project Overview](#project-overview)  
+2. [Methodology](#methodology)  
+   * [Data Cleaning & Pseudonymisation](#data-cleaning--pseudonymisation)  
+   * [Relational Schema](#relational-schema)  
+   * [Core Queries](#core-queries)  
+3. [Key Findings](#key-findings)
+4. [Conclusion](#conclusion)
+5. [Repository Structure](#repository-structure)
+6. [License](#license)  
+
+---
 
 ## Project Overview
+Airbnb began as a **sharing-economy** venture but is trending toward a **quasi-hotel** model run by professional multi-hosts.  
+This project  
 
-This project investigates Airbnb hosting dynamics, particularly focusing on the comparison between **single hosts** (hosts managing one property) and **multi hosts** (hosts managing multiple properties). It analyzes how the COVID-19 pandemic influenced these dynamics, examines geographical distribution and pricing of listings, and assesses differences in service quality through guest ratings.
+* builds a clean, pseudonymised **SQLite** database for London listings (2008-2023);  
+* defines **Host**, **Listing**, and **Rating** entities with full referential integrity;  
+* answers three research questions  
+  1. How has the share of multi-hosts evolved over time (and around COVID-19)?  
+  2. How are listings geographically distributed by host type and price?  
+  3. Do single- and multi-host listings differ in customer ratings?  
+* provides a full write-up in `Štajer_Maksimilian_682271_report.pdf`.
 
-## Research Questions
-
-The analysis addresses three primary research questions:
-
-1. **Multi-host Trends:**  
-   How has the proportion or number of multi-hosts changed over the years, and did the COVID-19 pandemic impact this trend?
-
-2. **Geographical Distribution and Pricing:**  
-   What is the geographical distribution of Airbnb listings managed by single vs. multi hosts, and how do prices differ by neighborhood?
-
-3. **Guest Ratings Comparison:**  
-   Is there a statistically significant difference in average guest ratings between single-host and multi-host listings?
+---
 
 ## Methodology
+### Data Cleaning & Pseudonymisation
+* Removed incomplete rows, normalised `price` to `REAL`, and filled rating subscores with the overall rating when missing.  
+* Replaced personally identifying **host_id** and **listing_id** with pseudonyms:
 
-### Data Modeling
+    ```sql
+    -- Host-ID remap (excerpt)
+    INSERT INTO Mapping_host_id(old_host_id)
+    SELECT DISTINCT host_id FROM listings;
+
+    UPDATE Mapping_host_id
+       SET new_host_id = hex(randomblob(16));
+    ```
+
+  Complete, reproducible steps are documented in *Task 3* (cleaning) and *Task 4* (processing) of the report.
+
+### Relational Schema
 
 - **Conceptual Model:**  
   Created an Entity Relationship Diagram (ERD) featuring three entities: `Host`, `Listing`, and `Rating`.
@@ -32,33 +62,72 @@ The analysis addresses three primary research questions:
 - **Physical Model:**  
   Implemented the relational schema with clear foreign key relationships (`Host` → `Listing` → `Rating`).
 
-### Data Cleaning
+### Core Queries
 
-- Addressed null values, duplicates, and data inconsistencies.
-- Standardized pricing data into numeric format.
-- Applied pseudonymization to sensitive host and listing information for privacy compliance.
+#### Q1 - Temporal evolution
+```sql
+SELECT strftime('%Y', host_since) AS year,
+       SUM(calculated_host_listings_count = 1)  AS single_hosts,
+       SUM(calculated_host_listings_count > 1)  AS multi_hosts,
+       ROUND(1.0 * multi_hosts / COUNT(*), 2)   AS multi_share
+FROM Host
+GROUP BY year;
+```
+#### Q2 - Top neighbourhoods (multi-host share, volume, price)
+```sql
+WITH RankedNeighbourhoods AS (
+    SELECT l.neighbourhood_cleansed,
+           COUNT(*)                                           AS total_listings,
+           SUM(h.calculated_host_listings_count = 1)          AS single_host_listings,
+           SUM(h.calculated_host_listings_count > 1)          AS multi_host_listings,
+           ROUND(
+               1.0 * SUM(h.calculated_host_listings_count > 1) / COUNT(*),
+               2
+           )                                                  AS multi_host_prop,
+           RANK() OVER (ORDER BY multi_host_prop DESC)        AS rnk
+    FROM   Listing l
+    JOIN   Host    h USING (host_id)
+    GROUP  BY l.neighbourhood_cleansed
+)
+SELECT *
+FROM   RankedNeighbourhoods
+WHERE  rnk <= 5;
+```
 
-### Data Processing
+#### Q3 - Rating comparison (single- vs. multi-host)
+```sql
+SELECT
+    AVG(CASE WHEN h.calculated_host_listings_count = 1
+             THEN r.review_scores_rating END)                 AS avg_rating_single,
+    AVG(CASE WHEN h.calculated_host_listings_count > 1
+             THEN r.review_scores_rating END)                 AS avg_rating_multi,
 
-- Built and populated database tables consistent with the physical ERD.
-- Executed SQL queries for detailed data analysis and visualization.
+    AVG(CASE WHEN h.calculated_host_listings_count = 1
+             THEN r.review_scores_accuracy END)               AS avg_accuracy_single,
+    AVG(CASE WHEN h.calculated_host_listings_count > 1
+             THEN r.review_scores_accuracy END)               AS avg_accuracy_multi,
+
+    AVG(CASE WHEN h.calculated_host_listings_count = 1
+             THEN r.review_scores_value END)                  AS avg_value_single,
+    AVG(CASE WHEN h.calculated_host_listings_count > 1
+             THEN r.review_scores_value END)                  AS avg_value_multi
+FROM   Listing l
+JOIN   Host    h USING (host_id)
+LEFT   JOIN Rating r USING (listing_id);
+
+```
+
+---
 
 ## Key Findings
+| Research question | Insight |
+|-------------------|---------|
+| **Temporal trend** | Multi-host registrations rose from **17 % → 26 %** of new hosts after 2020. |
+| **Geographical pattern** | Central boroughs (Westminster, City of London, Kensington & Chelsea) show ≥ **64 %** multi-host saturation *and* the **highest prices**. |
+| **Price gap** | Multi-host listings are consistently **more expensive** – e.g. in Westminster the average single-host price is **£209** vs **£391** for multi-hosts. |
+| **Ratings** | Differences are marginal: single hosts edge ahead in **accuracy** and **value**, while multi-hosts slightly win on **location**; overall rating gap is **0.06 / 5**. |
 
-### Multi-host Dynamics Over Time
-
-- Host registrations peaked around 2015 and subsequently declined.
-- Post-2020 registrations show a noticeable increase in the proportion of multi-hosts, suggesting a trend toward professionalization.
-
-### Geographical Distribution and Pricing
-
-- Central, tourist-heavy areas (e.g., Westminster, City of London) exhibit higher proportions of multi-host listings.
-- Multi-host listings consistently charge higher prices compared to single-host listings, especially in central neighborhoods.
-
-### Guest Ratings Analysis
-
-- Multi-host listings generally receive more guest reviews.
-- Single-host listings score marginally higher on average in categories like overall satisfaction and accuracy, whereas multi-host listings score better for location.
+*(Detailed statistics, tables, and plots are available in the PDF report.)*
 
 ## Conclusion
 
@@ -73,3 +142,8 @@ Airbnb's hosting dynamics reveal a shift towards multi-host operations, indicati
 ---
 
 *This project is for academic research purposes, offering insights into Airbnb’s role in urban real estate markets and hospitality trends.*
+
+---
+
+## License
+Released under the **MIT License** – see [`LICENSE`](LICENSE).
