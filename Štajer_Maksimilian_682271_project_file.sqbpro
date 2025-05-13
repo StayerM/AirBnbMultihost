@@ -1,0 +1,214 @@
+<?xml version="1.0" encoding="UTF-8"?><sqlb_project><db path="C:/Users/Jiket/OneDrive/Desktop/UNI/Data and ethics/IIA/Štajer_Maksimilian_682271_database.db" readonly="0" foreign_keys="1" case_sensitive_like="0" temp_store="0" wal_autocheckpoint="1000" synchronous="2"/><attached/><window><main_tabs open="structure browser pragmas query" current="3"/></window><tab_structure><column_width id="0" width="300"/><column_width id="1" width="0"/><column_width id="2" width="125"/><column_width id="3" width="16293"/><column_width id="4" width="0"/><expanded_item id="0" parent="1"/><expanded_item id="1" parent="1"/><expanded_item id="2" parent="1"/><expanded_item id="3" parent="1"/></tab_structure><tab_browse><current_table name="4,4:mainHost"/><default_encoding codec=""/><browse_table_settings><table schema="main" name="Host" show_row_id="0" encoding="" plot_x_axis="" unlock_view_pk="_rowid_"><sort/><column_widths><column index="1" value="300"/><column index="2" value="279"/><column index="3" value="300"/><column index="4" value="300"/><column index="5" value="300"/><column index="6" value="103"/></column_widths><filter_values/><conditional_formats/><row_id_formats/><display_formats/><hidden_columns/><plot_y_axes/><global_filter/></table><table schema="main" name="Listing" show_row_id="0" encoding="" plot_x_axis="" unlock_view_pk="_rowid_"><sort/><column_widths><column index="1" value="90"/><column index="2" value="300"/><column index="3" value="228"/><column index="4" value="57"/></column_widths><filter_values/><conditional_formats/><row_id_formats/><display_formats/><hidden_columns/><plot_y_axes/><global_filter/></table><table schema="main" name="Mapping_auto" show_row_id="0" encoding="" plot_x_axis="" unlock_view_pk="_rowid_"><sort/><column_widths><column index="1" value="90"/><column index="2" value="64"/></column_widths><filter_values/><conditional_formats/><row_id_formats/><display_formats/><hidden_columns/><plot_y_axes/><global_filter/></table><table schema="main" name="Rating" show_row_id="0" encoding="" plot_x_axis="" unlock_view_pk="_rowid_"><sort><column index="4" mode="0"/></sort><column_widths><column index="1" value="90"/><column index="2" value="182"/><column index="3" value="221"/><column index="4" value="195"/><column index="5" value="219"/><column index="6" value="209"/><column index="7" value="238"/><column index="8" value="276"/><column index="9" value="213"/><column index="10" value="190"/></column_widths><filter_values/><conditional_formats/><row_id_formats/><display_formats/><hidden_columns/><plot_y_axes/><global_filter/></table></browse_table_settings></tab_browse><tab_sql><sql name="Adding the host pseudonyms to the original table">ALTER TABLE Listings
+ADD COLUMN pseudo_host_id TEXT;
+
+UPDATE listings
+SET pseudo_host_id =(
+	SELECT new_host_id
+	FROM Mapping_host_id
+	WHERE Mapping_host_id.old_host_id = listings.host_id);
+	
+-- In order to obscure the connection between the two I proceded to remove the column from the table 
+
+</sql><sql name="Creating the entities">-- Creating the Host entity first as it does not have any foreign keys
+	
+CREATE TABLE Host (
+	host_id INT PRIMARY KEY NOT NULL UNIQUE,
+	calculated_host_listings_count INT,
+	host_since date)
+	
+-- Creating the Listing entity
+
+CREATE TABLE Listing (
+	listing_id INT PRIMARY KEY NOT NULL UNIQUE,
+	host_id INT NOT NULL,
+	neighbourhood_cleansed TEXT,
+	price REAL,
+	FOREIGN KEY (host_id) REFERENCES Host(host_id))
+	
+-- Creating the Rating entity last as it references the Listing table
+	
+CREATE TABLE Rating (
+	listing_id INT PRIMARY KEY NOT NULL UNIQUE,
+	number_of_reviews INT,
+	number_of_reviews_ltm INT,
+	review_scores_rating REAL,
+	review_scores_accuracy REAL,
+	review_scores_checkin REAL,
+	review_scores_cleanliness REAL,
+	review_scores_communication REAL,
+	review_scores_location REAL,
+	review_scores_value REAL,
+	FOREIGN KEY (listing_id) REFERENCES Listing(listing_id))</sql><sql name="Populating the entities">-- Starting with the Host entity
+
+INSERT INTO Host SELECT DISTINCT  pseudo_host_id,
+	calculated_host_listings_count,
+	host_since
+FROM listings
+
+--- Populating the listing table 
+
+INSERT INTO Listing
+SELECT
+    Mapping_auto.listing_id AS listing_id,
+    listings.pseudo_host_id, 
+	listings.neighbourhood_cleansed, listings.price 
+FROM listings
+JOIN Mapping_auto ON listings.id = Mapping_auto.old_id
+
+
+--- Populating the Rating table 
+
+INSERT INTO Rating
+SELECT
+    Mapping_auto.listing_id AS listing_id,
+    l.number_of_reviews, 
+	l.number_of_reviews_ltm,
+	l.review_scores_rating,
+	l.review_scores_accuracy,
+	l.review_scores_checkin,
+	l.review_scores_cleanliness,
+	l.review_scores_communication,
+	l.review_scores_location,
+	l.review_scores_value
+FROM listings l
+JOIN Mapping_auto ON l.id = Mapping_auto.old_id
+WHERE l.number_of_reviews &gt; 0
+</sql><sql name="Querying for question 1">-- Host registration by year
+
+SELECT 
+    STRFTIME('%Y', host_since) AS Registration_year,
+    SUM(CASE WHEN calculated_host_listings_count = 1 THEN 1 ELSE 0 END) AS Single_hosts,
+    SUM(CASE WHEN calculated_host_listings_count &gt; 1 THEN 1 ELSE 0 END) AS Multi_hosts,
+	COUNT(*) AS Total_hosts,
+    1.0 * SUM(CASE WHEN calculated_host_listings_count &gt; 1 THEN 1 ELSE 0 END) / COUNT(*) AS Percentage_multi_hosts
+FROM 
+    Host
+GROUP BY 
+    Registration_year;
+
+-- Host numbers total
+
+	
+SELECT 
+    SUM(CASE WHEN calculated_host_listings_count = 1 THEN 1 ELSE 0 END) AS single_listing_hosts,
+    SUM(CASE WHEN calculated_host_listings_count &gt; 1 THEN 1 ELSE 0 END) AS multiple_listing_hosts,
+    SUM(CASE WHEN calculated_host_listings_count BETWEEN 2 AND 10 THEN 1 ELSE 0 END) AS listings_2_to_10,
+    SUM(CASE WHEN calculated_host_listings_count BETWEEN 11 AND 20 THEN 1 ELSE 0 END) AS listings_11_to_20,
+    SUM(CASE WHEN calculated_host_listings_count BETWEEN 21 AND 30 THEN 1 ELSE 0 END) AS listings_21_to_30,
+    SUM(CASE WHEN calculated_host_listings_count &gt; 30 THEN 1 ELSE 0 END) AS listings_30_plus,
+    COUNT(*) AS total_hosts,
+    1.0 * SUM(CASE WHEN calculated_host_listings_count &gt; 1 THEN 1 ELSE 0 END) / COUNT(*) AS proportion_multiple_listing
+FROM 
+    Host;
+
+-- Host before and after covid
+	
+SELECT 
+    CASE 
+        WHEN STRFTIME('%Y', host_since) &lt; '2020' THEN 'Before 2020'
+        ELSE '2020 and After'
+    END AS registration_period,
+    COUNT(*) AS total_hosts,
+    SUM(CASE WHEN calculated_host_listings_count &gt; 1 THEN 1 ELSE 0 END) AS multiple_listing_hosts,
+    1.0 * SUM(CASE WHEN calculated_host_listings_count &gt; 1 THEN 1 ELSE 0 END) / COUNT(*) AS proportion_multiple_listing
+FROM 
+    Host
+GROUP BY 
+    registration_period;</sql><sql name="Querying for question 2">-- Top 5 Neighbourhoods by percentage of multi host listings
+	
+WITH RankedNeighbourhoods AS (
+    SELECT 
+        l.neighbourhood_cleansed,
+        COUNT(*) AS total_listings,
+        SUM(CASE WHEN h.calculated_host_listings_count = 1 THEN 1 ELSE 0 END) AS single_host_listings,
+        SUM(CASE WHEN h.calculated_host_listings_count &gt; 1 THEN 1 ELSE 0 END) AS multi_host_listings,
+        ROUND(1.0 * SUM(CASE WHEN h.calculated_host_listings_count &gt; 1 THEN 1 ELSE 0 END) / COUNT(h.calculated_host_listings_count), 2) AS multi_host_prop,
+        RANK() OVER (ORDER BY ROUND(1.0 * SUM(CASE WHEN h.calculated_host_listings_count &gt; 1 THEN 1 ELSE 0 END) / COUNT(h.calculated_host_listings_count), 2) DESC) AS rank
+    FROM 
+        Listing l
+    JOIN
+        Host h ON l.host_id = h.host_id
+    GROUP BY 
+        l.neighbourhood_cleansed
+)
+SELECT * FROM RankedNeighbourhoods
+WHERE rank &lt;= 5;
+
+-- Top 5 Neighbourhoods by total listings
+
+
+WITH RankedNeighbourhoods AS (
+    SELECT 
+        l.neighbourhood_cleansed,
+        COUNT(*) AS total_listings,
+        SUM(CASE WHEN h.calculated_host_listings_count = 1 THEN 1 ELSE 0 END) AS single_host_listings,
+        SUM(CASE WHEN h.calculated_host_listings_count &gt; 1 THEN 1 ELSE 0 END) AS multi_host_listings,
+        ROUND(1.0 * SUM(CASE WHEN h.calculated_host_listings_count &gt; 1 THEN 1 ELSE 0 END) / COUNT(h.calculated_host_listings_count), 2) AS multi_host_prop,
+        RANK() OVER (ORDER BY COUNT(*) DESC) AS rank
+    FROM 
+        Listing l
+    JOIN
+        Host h ON l.host_id = h.host_id
+    GROUP BY 
+        l.neighbourhood_cleansed
+)
+SELECT * FROM RankedNeighbourhoods
+WHERE rank &lt;= 5;
+
+
+-- Top 5 Neighbourhoods by average price
+	
+WITH RankedNeighbourhoods AS (
+    SELECT 
+        L.neighbourhood_cleansed,
+        ROUND(AVG(L.price), 2) AS avg_price,
+        ROUND(AVG(CASE WHEN H.calculated_host_listings_count = 1 THEN L.price ELSE NULL END), 2) AS avg_price_single_host,
+        ROUND(AVG(CASE WHEN H.calculated_host_listings_count &gt; 1 THEN L.price ELSE NULL END), 2) AS avg_price_multi_host,
+        RANK() OVER (ORDER BY AVG(L.price) DESC) AS price_rank
+    FROM 
+        Listing L
+    JOIN
+        Host H ON L.host_id = H.host_id
+    GROUP BY 
+        L.neighbourhood_cleansed
+)
+SELECT * FROM RankedNeighbourhoods
+WHERE price_rank &lt;= 5;
+
+</sql><sql name="Querying for question 3">-- Average ratings grouped by host type
+
+SELECT 
+    AVG(CASE WHEN H.calculated_host_listings_count = 1 THEN R.number_of_reviews ELSE NULL END) AS avg_reviews_single_host,
+    AVG(CASE WHEN H.calculated_host_listings_count &gt; 1 THEN R.number_of_reviews ELSE NULL END) AS avg_reviews_multi_host,
+    
+    AVG(CASE WHEN H.calculated_host_listings_count = 1 THEN R.number_of_reviews_ltm ELSE NULL END) AS avg_reviews_ltm_single_host,
+    AVG(CASE WHEN H.calculated_host_listings_count &gt; 1 THEN R.number_of_reviews_ltm ELSE NULL END) AS avg_reviews_ltm_multi_host,
+    
+    AVG(CASE WHEN H.calculated_host_listings_count = 1 THEN R.review_scores_rating ELSE NULL END) AS avg_score_rating_single_host,
+    AVG(CASE WHEN H.calculated_host_listings_count &gt; 1 THEN R.review_scores_rating ELSE NULL END) AS avg_score_rating_multi_host,
+    
+    AVG(CASE WHEN H.calculated_host_listings_count = 1 THEN R.review_scores_accuracy ELSE NULL END) AS avg_score_accuracy_single_host,
+    AVG(CASE WHEN H.calculated_host_listings_count &gt; 1 THEN R.review_scores_accuracy ELSE NULL END) AS avg_score_accuracy_multi_host,
+    
+    AVG(CASE WHEN H.calculated_host_listings_count = 1 THEN R.review_scores_checkin ELSE NULL END) AS avg_score_checkin_single_host,
+    AVG(CASE WHEN H.calculated_host_listings_count &gt; 1 THEN R.review_scores_checkin ELSE NULL END) AS avg_score_checkin_multi_host,
+    
+    AVG(CASE WHEN H.calculated_host_listings_count = 1 THEN R.review_scores_cleanliness ELSE NULL END) AS avg_score_cleanliness_single_host,
+    AVG(CASE WHEN H.calculated_host_listings_count &gt; 1 THEN R.review_scores_cleanliness ELSE NULL END) AS avg_score_cleanliness_multi_host,
+    
+    AVG(CASE WHEN H.calculated_host_listings_count = 1 THEN R.review_scores_communication ELSE NULL END) AS avg_score_communication_single_host,
+    AVG(CASE WHEN H.calculated_host_listings_count &gt; 1 THEN R.review_scores_communication ELSE NULL END) AS avg_score_communication_multi_host,
+    
+    AVG(CASE WHEN H.calculated_host_listings_count = 1 THEN R.review_scores_location ELSE NULL END) AS avg_score_location_single_host,
+    AVG(CASE WHEN H.calculated_host_listings_count &gt; 1 THEN R.review_scores_location ELSE NULL END) AS avg_score_location_multi_host,
+    
+    AVG(CASE WHEN H.calculated_host_listings_count = 1 THEN R.review_scores_value ELSE NULL END) AS avg_score_value_single_host,
+    AVG(CASE WHEN H.calculated_host_listings_count &gt; 1 THEN R.review_scores_value ELSE NULL END) AS avg_score_value_multi_host
+    
+FROM 
+    Listing L
+JOIN
+    Host H ON L.host_id = H.host_id
+LEFT JOIN
+    Rating R ON L.listing_id = R.listing_id;
+</sql><current_tab id="5"/></tab_sql></sqlb_project>
